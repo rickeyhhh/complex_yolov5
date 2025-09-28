@@ -90,9 +90,12 @@ class Conv(nn.Module):
         """Applies a fused convolution and activation function to the input tensor `x`."""
         return self.act(self.conv(x))
 
+
 ###
 import torch.nn.functional as F
 import torch.nn.init as init
+
+
 class DirectionQuantSTE(torch.autograd.Function):
     @staticmethod
     def forward(ctx, w_real: torch.Tensor, w_imag: torch.Tensor):
@@ -101,9 +104,9 @@ class DirectionQuantSTE(torch.autograd.Function):
         real_neg = (phase >= 3 * torch.pi / 4) | (phase < -3 * torch.pi / 4)
         imag_pos = (phase >= torch.pi / 4) & (phase < 3 * torch.pi / 4)
         imag_neg = (phase >= -3 * torch.pi / 4) & (phase < -torch.pi / 4)
-        real_scale = 1.0 / torch.clamp(w_real[real_pos|real_neg].abs().mean(), min=1e-5)
-        imag_scale = 1.0 / torch.clamp(w_imag[imag_pos|imag_neg].abs().mean(), min=1e-5)
-        
+        real_scale = 1.0 / torch.clamp(w_real[real_pos | real_neg].abs().mean(), min=1e-5)
+        imag_scale = 1.0 / torch.clamp(w_imag[imag_pos | imag_neg].abs().mean(), min=1e-5)
+
         qw_real = torch.zeros_like(w_real)
         qw_imag = torch.zeros_like(w_imag)
 
@@ -133,15 +136,12 @@ class ComplexWeightQuantizer(nn.Module):
     def forward(self, w_real, w_imag):
         return weight_quant_qat(w_real, w_imag)
 
+
 class ActivationQuantSTE(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x_real: torch.Tensor, x_imag: torch.Tensor):
-        real_scale = 127.0 / x_real.abs().max(dim=-1, keepdim=True).values.clamp_(
-            min=1e-5
-        )
-        imag_scale = 127.0 / x_imag.abs().max(dim=-1, keepdim=True).values.clamp_(
-            min=1e-5
-        )
+        real_scale = 127.0 / x_real.abs().max(dim=-1, keepdim=True).values.clamp_(min=1e-5)
+        imag_scale = 127.0 / x_imag.abs().max(dim=-1, keepdim=True).values.clamp_(min=1e-5)
 
         qx_real = x_real * real_scale
         qx_real = qx_real.contiguous()
@@ -174,6 +174,7 @@ class ComplexActivationQuantizer(nn.Module):
     def forward(self, x_real, x_imag):
         return activation_quant_qat(x_real, x_imag)
 
+
 class QuantizedConv2d(nn.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias):
         # self.in_channels = in_channels
@@ -181,15 +182,17 @@ class QuantizedConv2d(nn.Conv2d):
         # self.kernel_size = kernel_size
         # self.groups = groups
 
-        super().__init__(in_channels,
+        super().__init__(
+            in_channels,
             out_channels,
             kernel_size,
             stride=stride,
             padding=padding,
             dilation=dilation,
             groups=groups,
-            bias=bias)
-        
+            bias=bias,
+        )
+
         self.weight = None
         # if self.bias is not None:
         #     self.bias = None
@@ -215,14 +218,18 @@ class QuantizedConv2d(nn.Conv2d):
         qw_real, qw_imag = self.weight_real, self.weight_imag
         qx_real, qx_imag = x_real, x_imag
 
-        out_real = F.conv2d(qx_real, qw_real, None, self.stride, self.padding, self.dilation, self.groups) + F.conv2d(qx_imag, qw_imag, None, self.stride, self.padding, self.dilation, self.groups)
-        out_imag = F.conv2d(qx_real, qw_imag, None, self.stride, self.padding, self.dilation, self.groups) - F.conv2d(qx_imag, qw_real, None, self.stride, self.padding, self.dilation, self.groups)
+        out_real = F.conv2d(qx_real, qw_real, None, self.stride, self.padding, self.dilation, self.groups) + F.conv2d(
+            qx_imag, qw_imag, None, self.stride, self.padding, self.dilation, self.groups
+        )
+        out_imag = F.conv2d(qx_real, qw_imag, None, self.stride, self.padding, self.dilation, self.groups) - F.conv2d(
+            qx_imag, qw_real, None, self.stride, self.padding, self.dilation, self.groups
+        )
 
         return out_real, out_imag
 
+
 ### Complex-valued Convolution
 class ComplexConv(nn.Module):
-
     # default_act = nn.SiLU()
     default_act = nn.ReLU()
 
@@ -238,10 +245,11 @@ class ComplexConv(nn.Module):
 
     def forward(self, x):
         """Applies a complex-valued convolution followed by batch normalization and an activation function to the input
-        tensor `x`."""
+        tensor `x`.
+        """
         if isinstance(x, torch.Tensor) and not torch.is_complex(x):
-            x = x + 1j * torch.zeros_like(x) 
-        
+            x = x + 1j * torch.zeros_like(x)
+
         if torch.is_complex(x):
             x_real, x_imag = x.real, x.imag
 
@@ -251,14 +259,14 @@ class ComplexConv(nn.Module):
         y_imag = self.bn_imag(y_imag_conv)
 
         y = self.act(y_real) + 1j * self.act(y_imag)
-        
+
         return y
-    
+
     def forward_fuse(self, x):
         """Applies a fused complex-valued convolution and activation function to the input tensor `x`."""
         if isinstance(x, torch.Tensor) and not torch.is_complex(x):
-            x = x + 1j * torch.zeros_like(x) 
-        
+            x = x + 1j * torch.zeros_like(x)
+
         if torch.is_complex(x):
             x_real, x_imag = x.real, x.imag
 
@@ -267,6 +275,7 @@ class ComplexConv(nn.Module):
         y = self.act(y_real_conv) + 1j * self.act(y_imag_conv)
 
         return y
+
 
 ###
 class ComplexUpsample(nn.Module):
@@ -278,11 +287,12 @@ class ComplexUpsample(nn.Module):
     def forward(self, input):
         input_real = input.real
         input_imag = input.imag
-        
-        upsampled_real = nn.functional.interpolate(input_real, self.size, self.scale_factor, mode='nearest')
-        upsampled_imag = nn.functional.interpolate(input_imag, self.size, self.scale_factor, mode='nearest')
+
+        upsampled_real = nn.functional.interpolate(input_real, self.size, self.scale_factor, mode="nearest")
+        upsampled_imag = nn.functional.interpolate(input_imag, self.size, self.scale_factor, mode="nearest")
 
         return upsampled_real + 1j * upsampled_imag
+
 
 class DWConv(Conv):
     """Implements a depth-wise convolution layer with optional activation for efficient spatial filtering."""
@@ -389,6 +399,7 @@ class ComplexBottleneck(nn.Module):
         # print("y1.shape", y1.shape)
         return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
 
+
 class BottleneckCSP(nn.Module):
     """CSP bottleneck layer for feature extraction with cross-stage partial connections and optional shortcuts."""
 
@@ -454,9 +465,9 @@ class C3(nn.Module):
         """Performs forward propagation using concatenated outputs from two convolutions and a Bottleneck sequence."""
         return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), 1))
 
+
 ###
 class ComplexC3(nn.Module):
-
     def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):
         super().__init__()
         c_ = int(c2 * e)
@@ -470,6 +481,7 @@ class ComplexC3(nn.Module):
         # y2 = self.cv2(x)
         # print(f"y1 shape: {y1.shape}, y2 shape: {y2.shape}")
         return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), 1))
+
 
 class C3x(C3):
     """Extends the C3 module with cross-convolutions for enhanced feature extraction in neural networks."""
@@ -563,6 +575,7 @@ class SPPF(nn.Module):
             y2 = self.m(y1)
             return self.cv2(torch.cat((x, y1, y2, self.m(y2)), 1))
 
+
 ###
 class MagnitudeMaxPool2d(nn.Module):
     def __init__(self, k, s, p):
@@ -572,9 +585,10 @@ class MagnitudeMaxPool2d(nn.Module):
     def forward(self, x):
         magnitude = torch.abs(x)
         pooled_magnitude, indices = self.m(magnitude)
-        pooled_complex = torch.gather(x.flatten(2), dim = 2, index = indices.flatten(2)).view_as(pooled_magnitude)
+        pooled_complex = torch.gather(x.flatten(2), dim=2, index=indices.flatten(2)).view_as(pooled_magnitude)
 
         return pooled_complex
+
 
 ###
 class ComplexSPPF(nn.Module):
@@ -592,6 +606,7 @@ class ComplexSPPF(nn.Module):
             y1 = self.m(x)
             y2 = self.m(y1)
             return self.cv2(torch.cat((x, y1, y2, self.m(y2)), 1))
+
 
 class Focus(nn.Module):
     """Focuses spatial information into channel space using slicing and convolution for efficient feature extraction."""
