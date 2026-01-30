@@ -58,8 +58,7 @@ from utils.torch_utils import copy_attr, smart_inference_mode
 
 
 def autopad(k, p=None, d=1):
-    """
-    Pads kernel to 'same' output shape, adjusting for optional dilation; returns padding size.
+    """Pads kernel to 'same' output shape, adjusting for optional dilation; returns padding size.
 
     `k`: kernel, `p`: padding, `d`: dilation.
     """
@@ -90,9 +89,12 @@ class Conv(nn.Module):
         """Applies a fused convolution and activation function to the input tensor `x`."""
         return self.act(self.conv(x))
 
+
 ###
 import torch.nn.functional as F
 import torch.nn.init as init
+
+
 class DirectionQuantSTE(torch.autograd.Function):
     @staticmethod
     def forward(ctx, w_real: torch.Tensor, w_imag: torch.Tensor):
@@ -101,9 +103,9 @@ class DirectionQuantSTE(torch.autograd.Function):
         real_neg = (phase >= 3 * torch.pi / 4) | (phase < -3 * torch.pi / 4)
         imag_pos = (phase >= torch.pi / 4) & (phase < 3 * torch.pi / 4)
         imag_neg = (phase >= -3 * torch.pi / 4) & (phase < -torch.pi / 4)
-        real_scale = 1.0 / torch.clamp(w_real[real_pos|real_neg].abs().mean(), min=1e-5)
-        imag_scale = 1.0 / torch.clamp(w_imag[imag_pos|imag_neg].abs().mean(), min=1e-5)
-        
+        real_scale = 1.0 / torch.clamp(w_real[real_pos | real_neg].abs().mean(), min=1e-5)
+        imag_scale = 1.0 / torch.clamp(w_imag[imag_pos | imag_neg].abs().mean(), min=1e-5)
+
         qw_real = torch.zeros_like(w_real)
         qw_imag = torch.zeros_like(w_imag)
 
@@ -133,15 +135,12 @@ class ComplexWeightQuantizer(nn.Module):
     def forward(self, w_real, w_imag):
         return weight_quant_qat(w_real, w_imag)
 
+
 class ActivationQuantSTE(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x_real: torch.Tensor, x_imag: torch.Tensor):
-        real_scale = 127.0 / x_real.abs().max(dim=-1, keepdim=True).values.clamp_(
-            min=1e-5
-        )
-        imag_scale = 127.0 / x_imag.abs().max(dim=-1, keepdim=True).values.clamp_(
-            min=1e-5
-        )
+        real_scale = 127.0 / x_real.abs().max(dim=-1, keepdim=True).values.clamp_(min=1e-5)
+        imag_scale = 127.0 / x_imag.abs().max(dim=-1, keepdim=True).values.clamp_(min=1e-5)
 
         qx_real = x_real * real_scale
         qx_real = qx_real.contiguous()
@@ -174,6 +173,7 @@ class ComplexActivationQuantizer(nn.Module):
     def forward(self, x_real, x_imag):
         return activation_quant_qat(x_real, x_imag)
 
+
 class QuantizedConv2d(nn.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias):
         # self.in_channels = in_channels
@@ -181,15 +181,17 @@ class QuantizedConv2d(nn.Conv2d):
         # self.kernel_size = kernel_size
         # self.groups = groups
 
-        super().__init__(in_channels,
+        super().__init__(
+            in_channels,
             out_channels,
             kernel_size,
             stride=stride,
             padding=padding,
             dilation=dilation,
             groups=groups,
-            bias=bias)
-        
+            bias=bias,
+        )
+
         self.weight = None
         # if self.bias is not None:
         #     self.bias = None
@@ -215,14 +217,18 @@ class QuantizedConv2d(nn.Conv2d):
         qw_real, qw_imag = self.weight_real, self.weight_imag
         qx_real, qx_imag = x_real, x_imag
 
-        out_real = F.conv2d(qx_real, qw_real, None, self.stride, self.padding, self.dilation, self.groups) + F.conv2d(qx_imag, qw_imag, None, self.stride, self.padding, self.dilation, self.groups)
-        out_imag = F.conv2d(qx_real, qw_imag, None, self.stride, self.padding, self.dilation, self.groups) - F.conv2d(qx_imag, qw_real, None, self.stride, self.padding, self.dilation, self.groups)
+        out_real = F.conv2d(qx_real, qw_real, None, self.stride, self.padding, self.dilation, self.groups) + F.conv2d(
+            qx_imag, qw_imag, None, self.stride, self.padding, self.dilation, self.groups
+        )
+        out_imag = F.conv2d(qx_real, qw_imag, None, self.stride, self.padding, self.dilation, self.groups) - F.conv2d(
+            qx_imag, qw_real, None, self.stride, self.padding, self.dilation, self.groups
+        )
 
         return out_real, out_imag
 
+
 ### Complex-valued Convolution
 class ComplexConv(nn.Module):
-
     # default_act = nn.SiLU()
     default_act = nn.ReLU()
 
@@ -238,10 +244,11 @@ class ComplexConv(nn.Module):
 
     def forward(self, x):
         """Applies a complex-valued convolution followed by batch normalization and an activation function to the input
-        tensor `x`."""
+        tensor `x`.
+        """
         if isinstance(x, torch.Tensor) and not torch.is_complex(x):
-            x = x + 1j * torch.zeros_like(x) 
-        
+            x = x + 1j * torch.zeros_like(x)
+
         if torch.is_complex(x):
             x_real, x_imag = x.real, x.imag
 
@@ -251,14 +258,14 @@ class ComplexConv(nn.Module):
         y_imag = self.bn_imag(y_imag_conv)
 
         y = self.act(y_real) + 1j * self.act(y_imag)
-        
+
         return y
-    
+
     def forward_fuse(self, x):
         """Applies a fused complex-valued convolution and activation function to the input tensor `x`."""
         if isinstance(x, torch.Tensor) and not torch.is_complex(x):
-            x = x + 1j * torch.zeros_like(x) 
-        
+            x = x + 1j * torch.zeros_like(x)
+
         if torch.is_complex(x):
             x_real, x_imag = x.real, x.imag
 
@@ -267,6 +274,7 @@ class ComplexConv(nn.Module):
         y = self.act(y_real_conv) + 1j * self.act(y_imag_conv)
 
         return y
+
 
 ###
 class ComplexUpsample(nn.Module):
@@ -278,11 +286,12 @@ class ComplexUpsample(nn.Module):
     def forward(self, input):
         input_real = input.real
         input_imag = input.imag
-        
-        upsampled_real = nn.functional.interpolate(input_real, self.size, self.scale_factor, mode='nearest')
-        upsampled_imag = nn.functional.interpolate(input_imag, self.size, self.scale_factor, mode='nearest')
+
+        upsampled_real = nn.functional.interpolate(input_real, self.size, self.scale_factor, mode="nearest")
+        upsampled_imag = nn.functional.interpolate(input_imag, self.size, self.scale_factor, mode="nearest")
 
         return upsampled_real + 1j * upsampled_imag
+
 
 class DWConv(Conv):
     """Implements a depth-wise convolution layer with optional activation for efficient spatial filtering."""
@@ -308,8 +317,7 @@ class TransformerLayer(nn.Module):
     """Transformer layer with multihead attention and linear layers, optimized by removing LayerNorm."""
 
     def __init__(self, c, num_heads):
-        """
-        Initializes a transformer layer, sans LayerNorm for performance, with multihead attention and linear layers.
+        """Initializes a transformer layer, sans LayerNorm for performance, with multihead attention and linear layers.
 
         See  as described in https://arxiv.org/abs/2010.11929.
         """
@@ -389,6 +397,7 @@ class ComplexBottleneck(nn.Module):
         # print("y1.shape", y1.shape)
         return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
 
+
 class BottleneckCSP(nn.Module):
     """CSP bottleneck layer for feature extraction with cross-stage partial connections and optional shortcuts."""
 
@@ -419,8 +428,7 @@ class CrossConv(nn.Module):
     """Implements a cross convolution layer with downsampling, expansion, and optional shortcut."""
 
     def __init__(self, c1, c2, k=3, s=1, g=1, e=1.0, shortcut=False):
-        """
-        Initializes CrossConv with downsampling, expanding, and optionally shortcutting; `c1` input, `c2` output
+        """Initializes CrossConv with downsampling, expanding, and optionally shortcutting; `c1` input, `c2` output
         channels.
 
         Inputs are ch_in, ch_out, kernel, stride, groups, expansion, shortcut.
@@ -454,9 +462,9 @@ class C3(nn.Module):
         """Performs forward propagation using concatenated outputs from two convolutions and a Bottleneck sequence."""
         return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), 1))
 
+
 ###
 class ComplexC3(nn.Module):
-
     def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):
         super().__init__()
         c_ = int(c2 * e)
@@ -470,6 +478,7 @@ class ComplexC3(nn.Module):
         # y2 = self.cv2(x)
         # print(f"y1 shape: {y1.shape}, y2 shape: {y2.shape}")
         return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), 1))
+
 
 class C3x(C3):
     """Extends the C3 module with cross-convolutions for enhanced feature extraction in neural networks."""
@@ -521,7 +530,9 @@ class SPP(nn.Module):
     """Implements Spatial Pyramid Pooling (SPP) for feature extraction, ref: https://arxiv.org/abs/1406.4729."""
 
     def __init__(self, c1, c2, k=(5, 9, 13)):
-        """Initializes SPP layer with Spatial Pyramid Pooling, ref: https://arxiv.org/abs/1406.4729, args: c1 (input channels), c2 (output channels), k (kernel sizes)."""
+        """Initializes SPP layer with Spatial Pyramid Pooling, ref: https://arxiv.org/abs/1406.4729, args: c1 (input
+        channels), c2 (output channels), k (kernel sizes).
+        """
         super().__init__()
         c_ = c1 // 2  # hidden channels
         self.cv1 = Conv(c1, c_, 1, 1)
@@ -542,8 +553,7 @@ class SPPF(nn.Module):
     """Implements a fast Spatial Pyramid Pooling (SPPF) layer for efficient feature extraction in YOLOv5 models."""
 
     def __init__(self, c1, c2, k=5):
-        """
-        Initializes YOLOv5 SPPF layer with given channels and kernel size for YOLOv5 model, combining convolution and
+        """Initializes YOLOv5 SPPF layer with given channels and kernel size for YOLOv5 model, combining convolution and
         max pooling.
 
         Equivalent to SPP(k=(5, 9, 13)).
@@ -563,6 +573,7 @@ class SPPF(nn.Module):
             y2 = self.m(y1)
             return self.cv2(torch.cat((x, y1, y2, self.m(y2)), 1))
 
+
 ###
 class MagnitudeMaxPool2d(nn.Module):
     def __init__(self, k, s, p):
@@ -572,9 +583,10 @@ class MagnitudeMaxPool2d(nn.Module):
     def forward(self, x):
         magnitude = torch.abs(x)
         pooled_magnitude, indices = self.m(magnitude)
-        pooled_complex = torch.gather(x.flatten(2), dim = 2, index = indices.flatten(2)).view_as(pooled_magnitude)
+        pooled_complex = torch.gather(x.flatten(2), dim=2, index=indices.flatten(2)).view_as(pooled_magnitude)
 
         return pooled_complex
+
 
 ###
 class ComplexSPPF(nn.Module):
@@ -592,6 +604,7 @@ class ComplexSPPF(nn.Module):
             y1 = self.m(x)
             y2 = self.m(y1)
             return self.cv2(torch.cat((x, y1, y2, self.m(y2)), 1))
+
 
 class Focus(nn.Module):
     """Focuses spatial information into channel space using slicing and convolution for efficient feature extraction."""
@@ -632,7 +645,9 @@ class GhostBottleneck(nn.Module):
     """Efficient bottleneck layer using Ghost Convolutions, see https://github.com/huawei-noah/ghostnet."""
 
     def __init__(self, c1, c2, k=3, s=1):
-        """Initializes GhostBottleneck with ch_in `c1`, ch_out `c2`, kernel size `k`, stride `s`; see https://github.com/huawei-noah/ghostnet."""
+        """Initializes GhostBottleneck with ch_in `c1`, ch_out `c2`, kernel size `k`, stride `s`; see
+        https://github.com/huawei-noah/ghostnet.
+        """
         super().__init__()
         c_ = c2 // 2
         self.conv = nn.Sequential(
@@ -674,9 +689,8 @@ class Expand(nn.Module):
     """Expands spatial dimensions by redistributing channels, e.g., from (1,64,80,80) to (1,16,160,160)."""
 
     def __init__(self, gain=2):
-        """
-        Initializes the Expand module to increase spatial dimensions by redistributing channels, with an optional gain
-        factor.
+        """Initializes the Expand module to increase spatial dimensions by redistributing channels, with an optional
+        gain factor.
 
         Example: x(1,64,80,80) to x(1,16,160,160).
         """
@@ -684,8 +698,7 @@ class Expand(nn.Module):
         self.gain = gain
 
     def forward(self, x):
-        """Processes input tensor x to expand spatial dimensions by redistributing channels, requiring C / gain^2 ==
-        0.
+        """Processes input tensor x to expand spatial dimensions by redistributing channels, requiring C / gain^2 == 0.
         """
         b, c, h, w = x.size()  # assert C / s ** 2 == 0, 'Indivisible gain'
         s = self.gain
@@ -703,8 +716,7 @@ class Concat(nn.Module):
         self.d = dimension
 
     def forward(self, x):
-        """Concatenates a list of tensors along a specified dimension; `x` is a list of tensors, `dimension` is an
-        int.
+        """Concatenates a list of tensors along a specified dimension; `x` is a list of tensors, `dimension` is an int.
         """
         return torch.cat(x, self.d)
 
@@ -943,7 +955,7 @@ class DetectMultiBackend(nn.Module):
 
     def forward(self, im, augment=False, visualize=False):
         """Performs YOLOv5 inference on input images with options for augmentation and visualization."""
-        b, ch, h, w = im.shape  # batch, channel, height, width
+        _b, _ch, h, w = im.shape  # batch, channel, height, width
         if self.fp16 and im.dtype != torch.float16:
             im = im.half()  # to FP16
         if self.nhwc:
@@ -1039,8 +1051,7 @@ class DetectMultiBackend(nn.Module):
 
     @staticmethod
     def _model_type(p="path/to/model.pt"):
-        """
-        Determines model type from file path or URL, supporting various export formats.
+        """Determines model type from file path or URL, supporting various export formats.
 
         Example: path='path/to/model.onnx' -> type=onnx
         """
@@ -1055,7 +1066,7 @@ class DetectMultiBackend(nn.Module):
         types = [s in Path(p).name for s in sf]
         types[8] &= not types[9]  # tflite &= not edgetpu
         triton = not any(types) and all([any(s in url.scheme for s in ["http", "grpc"]), url.netloc])
-        return types + [triton]
+        return [*types, triton]
 
     @staticmethod
     def _load_metadata(f=Path("path/to/meta.yaml")):
@@ -1092,8 +1103,7 @@ class AutoShape(nn.Module):
             m.export = True  # do not output loss values
 
     def _apply(self, fn):
-        """
-        Applies to(), cpu(), cuda(), half() etc.
+        """Applies to(), cpu(), cuda(), half() etc.
 
         to model tensors excluding parameters or registered buffers.
         """
@@ -1108,8 +1118,7 @@ class AutoShape(nn.Module):
 
     @smart_inference_mode()
     def forward(self, ims, size=640, augment=False, profile=False):
-        """
-        Performs inference on inputs with optional augment & profiling.
+        """Performs inference on inputs with optional augment & profiling.
 
         Supports various formats including file, URI, OpenCV, PIL, numpy, torch.
         """
@@ -1255,16 +1264,14 @@ class Detections:
 
     @TryExcept("Showing images is not supported in this environment")
     def show(self, labels=True):
-        """
-        Displays detection results with optional labels.
+        """Displays detection results with optional labels.
 
         Usage: show(labels=True)
         """
         self._run(show=True, labels=labels)  # show results
 
     def save(self, labels=True, save_dir="runs/detect/exp", exist_ok=False):
-        """
-        Saves detection results with optional labels to a specified directory.
+        """Saves detection results with optional labels to a specified directory.
 
         Usage: save(labels=True, save_dir='runs/detect/exp', exist_ok=False)
         """
@@ -1272,8 +1279,7 @@ class Detections:
         self._run(save=True, labels=labels, save_dir=save_dir)  # save results
 
     def crop(self, save=True, save_dir="runs/detect/exp", exist_ok=False):
-        """
-        Crops detection results, optionally saves them to a directory.
+        """Crops detection results, optionally saves them to a directory.
 
         Args: save (bool), save_dir (str), exist_ok (bool).
         """
@@ -1286,8 +1292,7 @@ class Detections:
         return self.ims
 
     def pandas(self):
-        """
-        Returns detections as pandas DataFrames for various box formats (xyxy, xyxyn, xywh, xywhn).
+        """Returns detections as pandas DataFrames for various box formats (xyxy, xyxyn, xywh, xywhn).
 
         Example: print(results.pandas().xyxy[0]).
         """
@@ -1295,13 +1300,12 @@ class Detections:
         ca = "xmin", "ymin", "xmax", "ymax", "confidence", "class", "name"  # xyxy columns
         cb = "xcenter", "ycenter", "width", "height", "confidence", "class", "name"  # xywh columns
         for k, c in zip(["xyxy", "xyxyn", "xywh", "xywhn"], [ca, ca, cb, cb]):
-            a = [[x[:5] + [int(x[5]), self.names[int(x[5])]] for x in x.tolist()] for x in getattr(self, k)]  # update
+            a = [[[*x[:5], int(x[5]), self.names[int(x[5])]] for x in x.tolist()] for x in getattr(self, k)]  # update
             setattr(new, k, [pd.DataFrame(x, columns=c) for x in a])
         return new
 
     def tolist(self):
-        """
-        Converts a Detections object into a list of individual detection results for iteration.
+        """Converts a Detections object into a list of individual detection results for iteration.
 
         Example: for result in results.tolist():
         """

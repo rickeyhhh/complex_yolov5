@@ -36,6 +36,10 @@ from models.common import (
     C3Ghost,
     C3x,
     Classify,
+    ComplexBottleneck,
+    ComplexC3,
+    ComplexConv,
+    ComplexSPPF,
     Concat,
     Contract,
     Conv,
@@ -48,11 +52,6 @@ from models.common import (
     GhostBottleneck,
     GhostConv,
     Proto,
-    ComplexConv,
-    ComplexC3,
-    ComplexBottleneck,
-    ComplexSPPF,
-    ComplexUpsample,
 )
 from models.experimental import MixConv2d
 from utils.autoanchor import check_anchor_order
@@ -131,15 +130,14 @@ class Detect(nn.Module):
         anchor_grid = (self.anchors[i] * self.stride[i]).view((1, self.na, 1, 1, 2)).expand(shape)
         return grid, anchor_grid
 
+
 ###
 class ComplexDetect(nn.Module):
-
     stride = None  # strides computed during build
     dynamic = False  # force grid reconstruction
     export = False  # export mode
 
     def __init__(self, nc=80, anchors=(), ch=(), inplace=True):
-        
         super().__init__()
         self.nc = nc  # number of classes
         self.no = nc + 5  # number of outputs per anchor
@@ -148,17 +146,15 @@ class ComplexDetect(nn.Module):
         self.grid = [torch.empty(0) for _ in range(self.nl)]  # init grid
         self.anchor_grid = [torch.empty(0) for _ in range(self.nl)]  # init anchor grid
         self.register_buffer("anchors", torch.tensor(anchors).float().view(self.nl, -1, 2))  # shape(nl,na,2)
-        self.m = nn.ModuleList(nn.Conv2d(x*2, self.no * self.na, 1) for x in ch)  # output conv
+        self.m = nn.ModuleList(nn.Conv2d(x * 2, self.no * self.na, 1) for x in ch)  # output conv
         ### complex-valued output conv
         # self.m = nn.ModuleList(ComplexConv(x, self.no * self.na, 1) for x in ch)
         self.inplace = inplace  # use inplace ops (e.g. slice assignment)
 
     def forward(self, x):
-
         z = []  # inference output
         for i in range(self.nl):
-            
-            ### complex-valued conv 
+            ### complex-valued conv
             x_real, x_imag = x[i].real, x[i].imag
             x_cat = torch.cat((x_real, x_imag), dim=1)
             # y = x_real + 1j * x_imag
@@ -187,7 +183,7 @@ class ComplexDetect(nn.Module):
                 z.append(y.view(bs, self.na * nx * ny, self.no))
 
         return x if self.training else (torch.cat(z, 1),) if self.export else (torch.cat(z, 1), x)
-    
+
     def _make_grid(self, nx=20, ny=20, i=0, torch_1_10=check_version(torch.__version__, "1.10.0")):
         """Generates a mesh grid for anchor boxes with optional compatibility for torch versions < 1.10."""
         d = self.anchors[i].device
@@ -198,6 +194,7 @@ class ComplexDetect(nn.Module):
         grid = torch.stack((xv, yv), 2).expand(shape) - 0.5  # add grid offset, i.e. y = 2.0 * x - 0.5
         anchor_grid = (self.anchors[i] * self.stride[i]).view((1, self.na, 1, 1, 2)).expand(shape)
         return grid, anchor_grid
+
 
 class Segment(Detect):
     """YOLOv5 Segment head for segmentation models, extending Detect with mask and prototype layers."""
@@ -387,8 +384,7 @@ class DetectionModel(BaseModel):
         return y
 
     def _initialize_biases(self, cf=None):
-        """
-        Initializes biases for YOLOv5's Detect() module, optionally using class frequencies (cf).
+        """Initializes biases for YOLOv5's Detect() module, optionally using class frequencies (cf).
 
         For details see https://arxiv.org/abs/1708.02002 section 3.3.
         """
@@ -410,7 +406,9 @@ class SegmentationModel(DetectionModel):
     """YOLOv5 segmentation model for object detection and segmentation tasks with configurable parameters."""
 
     def __init__(self, cfg="yolov5s-seg.yaml", ch=3, nc=None, anchors=None):
-        """Initializes a YOLOv5 segmentation model with configurable params: cfg (str) for configuration, ch (int) for channels, nc (int) for num classes, anchors (list)."""
+        """Initializes a YOLOv5 segmentation model with configurable params: cfg (str) for configuration, ch (int) for
+        channels, nc (int) for num classes, anchors (list).
+        """
         super().__init__(cfg, ch, nc, anchors)
 
 
@@ -528,7 +526,7 @@ def parse_model(d, ch):
         t = str(m)[8:-2].replace("__main__.", "")  # module type
         np = sum(x.numel() for x in m_.parameters())  # number params
         m_.i, m_.f, m_.type, m_.np = i, f, t, np  # attach index, 'from' index, type, number params
-        LOGGER.info(f"{i:>3}{str(f):>18}{n_:>3}{np:10.0f}  {t:<40}{str(args):<30}")  # print
+        LOGGER.info(f"{i:>3}{f!s:>18}{n_:>3}{np:10.0f}  {t:<40}{args!s:<30}")  # print
         save.extend(x % i for x in ([f] if isinstance(f, int) else f) if x != -1)  # append to savelist
         layers.append(m_)
         if i == 0:
