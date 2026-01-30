@@ -57,7 +57,6 @@ from utils.downloads import attempt_download, is_url
 from utils.general import (
     LOGGER,
     TQDM_BAR_FORMAT,
-    check_amp,
     check_dataset,
     check_file,
     check_git_info,
@@ -223,8 +222,8 @@ def train(hyp, opt, device, callbacks):
         LOGGER.info(f"Transferred {len(csd)}/{len(model.state_dict())} items from {weights}")  # report
     else:
         model = Model(cfg, ch=3, nc=nc, anchors=hyp.get("anchors")).to(device)  # create
-    #amp = check_amp(model)  # check AMP
-    amp = False  
+    # amp = check_amp(model)  # check AMP
+    amp = False
 
     # Freeze
     freeze = [f"model.{x}." for x in (freeze if len(freeze) > 1 else range(freeze[0]))]  # layers to freeze
@@ -355,7 +354,7 @@ def train(hyp, opt, device, callbacks):
     maps = np.zeros(nc)  # mAP per class
     results = (0, 0, 0, 0, 0, 0, 0)  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
     scheduler.last_epoch = start_epoch - 1  # do not move
-    #scaler = torch.cuda.amp.GradScaler(enabled=amp)
+    # scaler = torch.cuda.amp.GradScaler(enabled=amp)
     stopper, stop = EarlyStopping(patience=opt.patience), False
     compute_loss = ComputeLoss(model)  # init loss class
     callbacks.run("on_train_start")
@@ -421,15 +420,15 @@ def train(hyp, opt, device, callbacks):
                 loss *= 4.0
 
             # Backward
-            #scaler.scale(loss).backward()
+            # scaler.scale(loss).backward()
             loss.backward()
 
             # Optimize - https://pytorch.org/docs/master/notes/amp_examples.html
             if ni - last_opt_step >= accumulate:
-                #scaler.unscale_(optimizer)  # unscale gradients
+                # scaler.unscale_(optimizer)  # unscale gradients
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)  # clip gradients
-                #scaler.step(optimizer)  # optimizer.step
-                #scaler.update()
+                # scaler.step(optimizer)  # optimizer.step
+                # scaler.update()
                 optimizer.step()
                 optimizer.zero_grad()
                 if ema:
